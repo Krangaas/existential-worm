@@ -14,7 +14,7 @@ DICT_DELIM = "*"
 class Jorm:
     def __init__(self, leader, mygate, active, bucket, available):
         self.jormpack = os.path.abspath(sys.argv[0])
-        self.target = 2
+        self.target = 3
         self.segment_sr = 0        # ratio | send/recv ratio between segment and leader
         self.active = active       # host-port -> wormUDP | wormgates with currently active worms
         self.bucket = bucket       # host-port -> wormUDP | wormgates with currently unresponsive worms
@@ -88,24 +88,24 @@ class Jorm:
                 self.spawn_worm()
             self.infodump()
             self.update_worms()
-            time.sleep(2)
-            #try:
-            #    self.read_msg()
-            #except:
-            #    print("timed out(leader loop), retrying...")
-            #    time.sleep(1)
-            #    continue
+            #time.sleep(2)
+            try:
+                self.read_msg()
+            except socket.timeout:
+                print("timed out(leader loop), retrying...")
+                time.sleep(1)
+                continue
 
     def segment_flood(self):
         """ Main loop for segments """
         while True:
             try:
                 self.read_msg()
-                #self.inform_leader()
-            except:
+            except socket.timeout:
                 print("timed out(segment loop), retrying...")
                 continue
             time.sleep(2)
+            self.inform_leader()
 
     def election(self):
         """ Initiate election """
@@ -125,8 +125,8 @@ class Jorm:
             sock.bind((self_name, self_udp))
             sock.setblocking(False)
             #sock.settimeout(2)
-            msg = b"localhost:8000, hello from Jorm"
-            #msg = str.encode(msg)
+            msg = "%s, hello from jorm" %(list(self.mygate.keys())[0])
+            msg = str.encode(msg)
             sock.sendto(msg, (target_name, target_udp))
             self.leader_sr_map[target_key] += 1
             print("Updated", target_key)
@@ -142,14 +142,16 @@ class Jorm:
         sock.settimeout(2)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
-        key = recv_msg.split(",")
-        #if self.leader == self.mygate:
-        #    self.leader_sr_map[key] -= 1
-        #elif key == list(self.leader.keys())[0]:
-        #    self.segment_sr -= 1
-        #else:
-        #    # send hold on msg
-        #    pass
+        sock.close()
+        key = recv_msg.decode().split(",")[0]
+        if self.leader == self.mygate:
+            print("key:",key)
+            self.leader_sr_map[key] = 0
+        elif key == list(self.leader.keys())[0]:
+            self.segment_sr = 0
+        else:
+            # send hold on msg
+            pass
         print("got message:", recv_msg)
 
 
@@ -166,7 +168,7 @@ class Jorm:
         sock.bind((self_name, self_udp))
         sock.setblocking(False)
         sock.settimeout(2)
-        msg = b"localhost:8001, hello from segment"
+        msg = "%s, hello from segment" %(list(self.mygate.keys())[0])
         msg = str.encode(msg)
         sock.sendto(msg, (leader_name, leader_udp))
         self.segment_sr += 1
