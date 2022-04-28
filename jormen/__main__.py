@@ -3,8 +3,9 @@ import os
 import sys
 import random
 import socket
+import time
 
-# localhost:8000@9000_localhost:8000@9000___localhost:8001@9001
+# localhost:8000@9000_localhost:8000@9000_localhost:8000@9000__localhost:8001@9001
 ARG_DELIM = "_"
 KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
@@ -13,6 +14,7 @@ DICT_DELIM = "*"
 class Jorm:
     def __init__(self, leader, mygate, active, bucket, available):
         self.jormpack = os.path.abspath(sys.argv[0])
+        self.target = 2
         self.segment_sr = 0        # ratio | send/recv ratio between segment and leader
         self.active = active       # host-port -> wormUDP | wormgates with currently active worms
         self.bucket = bucket       # host-port -> wormUDP | wormgates with currently unresponsive worms
@@ -23,13 +25,20 @@ class Jorm:
         self.leader_sr_map = {}    # host-port -> ratio | send/recv ratio between leader and segments
 
         # populate send/recv map with wormgate host-port of active worms
-        for key in self.active:
-            self.leader_sr_map[key] = 0
+
         self.infodump()
         if self.mygate == self.leader:
-            self.spawn_worm()
+            for key in self.active:
+                if key in self.mygate:
+                    pass
+                self.leader_sr_map[key] = 0
+            self.leader_flood()
+        else:
+            self.segment_flood()
 
     def infodump(self):
+        print("___________INFO___________")
+        print("target:%d (%d)" %(self.target, len(self.active)))
         print("active", self.active)
         print("bucket", self.bucket)
         print("avail", self.available)
@@ -37,6 +46,7 @@ class Jorm:
         print("self", self.mygate)
         print("leader sr", self.leader_sr_map)
         print("jormpack", self.jormpack)
+        print("__________________________")
 
 
     def spawn_worm(self):
@@ -51,10 +61,15 @@ class Jorm:
         os.system(cmd)
 
     def pick_available_gate(self):
-        key, val = self.available.popitem()
-        ret = key + KEYVAL_DELIM + val
-        self.active[key] = val
-        return ret, key, val
+        try:
+            name, gate = self.available.popitem()
+        except:
+            print("go to bucket")
+            return
+        ret = name + KEYVAL_DELIM + gate
+        self.active[name] = gate
+        self.leader_sr_map[name] = 0
+        return ret, name, gate
 
     def core(self):
         """ Core loop """
@@ -69,65 +84,110 @@ class Jorm:
     def leader_flood(self):
         """ Main loop for the leader """
         while True:
-            pass
+            if len(self.active) < self.target:
+                self.spawn_worm()
+            self.infodump()
+            self.update_worms()
+            time.sleep(2)
+            #try:
+            #    self.read_msg()
+            #except:
+            #    print("timed out(leader loop), retrying...")
+            #    time.sleep(1)
+            #    continue
 
     def segment_flood(self):
         """ Main loop for segments """
         while True:
-            pass
+            try:
+                self.read_msg()
+                #self.inform_leader()
+            except:
+                print("timed out(segment loop), retrying...")
+                continue
+            time.sleep(2)
 
     def election(self):
         """ Initiate election """
 
-    def update_worm(self, host, port, args):
-        host_name = host.split(":")[0]
-        print("hostname:",host_name)
-        print("port:",port)
+    def update_worms(self):
+        self_name = list(self.leader.keys())[0]
+        self_udp = int(self.leader[self_name])
+        self_name = self_name.split(":")[0]
+
+        for target_key, target_udp in self.active.items():
+            if target_key in self.mygate.keys():
+                continue
+            target_name = target_key.split(":")[0]
+            target_udp = int(target_udp)
+
+            sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.bind((self_name, self_udp))
+            sock.setblocking(False)
+            #sock.settimeout(2)
+            msg = b"localhost:8000, hello from Jorm"
+            #msg = str.encode(msg)
+            sock.sendto(msg, (target_name, target_udp))
+            self.leader_sr_map[target_key] += 1
+            print("Updated", target_key)
+        return
+
+
+    def read_msg(self):
+        self_name = list(self.mygate.keys())[0]
+        self_udp = int(self.mygate[self_name])
+        self_name = self_name.split(":")[0]
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.settimeout(2)
+        sock.bind((self_name, self_udp))
+        recv_msg = sock.recv(1024)
+        key = recv_msg.split(",")
+        #if self.leader == self.mygate:
+        #    self.leader_sr_map[key] -= 1
+        #elif key == list(self.leader.keys())[0]:
+        #    self.segment_sr -= 1
+        #else:
+        #    # send hold on msg
+        #    pass
+        print("got message:", recv_msg)
 
-        udp_host = socket.gethostname()
-        print("udp_host:", udp_host)
-        upd_port = port
-        print("mygate: ", self.mygate)
 
-        sock.bind((udp_host,upd_port))
-        msg = b"hello from Jorm"
+    def inform_leader(self):
+        self_name = list(self.mygate.keys())[0]
+        self_udp = int(self.mygate[self_name])
+        self_name = self_name.split(":")[0]
 
-        while True:
-            print ("waiting...")
-            data,addr = sock.recvfrom(1024)
-            print("Recieved:", data, "from", addr)
-            sock.sendto(msg, (host_name, 45000))
+        leader_name = list(self.leader.keys())[0]
+        leader_udp = int(self.leader[leader_name])
+        leader_name = leader_name.split(":")[0]
+
+        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.bind((self_name, self_udp))
+        sock.setblocking(False)
+        sock.settimeout(2)
+        msg = b"localhost:8001, hello from segment"
+        msg = str.encode(msg)
+        sock.sendto(msg, (leader_name, leader_udp))
+        self.segment_sr += 1
+        print("Informed leader")
 
 
 def parse_args(str):
     """ Argument parser. Expects a string with arguments delimited by _ """
-    print(str)
     args = str.split(ARG_DELIM)
-    print(args)
-    print("arg0")
-    args[0] = string_to_dict(args[0])
-    print("arg1")
-    args[1] = string_to_dict(args[1])
-    print("arg2")
-    args[2] = string_to_dict(args[2])
-    print("arg3")
-    args[3] = string_to_dict(args[3])
-    print("arg4")
-    args[4] = string_to_dict(args[4])
+    for i in range(len(args)):
+        dict = {}
+        if args[i] == "":
+            args[i] = dict
+        else:
+            pairs = args[i].split(DICT_DELIM)
+            for p in pairs:
+                key, val = p.split(KEYVAL_DELIM)
+                dict[key] = val
+            args[i] = dict
     return args
 
-def string_to_dict(arg):
-    dict = {}
-    if arg == "":
-        return dict
-    pairs = arg.split('*')
-    for i in pairs:
-        print(i.split('@'))
-        key, val = i.split('@')
-        dict[key] = val
-    return dict
 
 def dict_to_string(arg):
     ret = ""
@@ -136,11 +196,22 @@ def dict_to_string(arg):
 
     return ret[:-1]
 
+
 if __name__ == "__main__":
-    print(sys.argv)
-    print(os.path.abspath(sys.argv[0]))
     args = parse_args(sys.argv[1])
     Jorm(args[0], args[1], args[2], args[3], args[4])
 
 
-    # localhost:8000@9000_localhost:8000@9000___localhost:8001@9001
+
+    # localhost:8000@9000_localhost:8000@9000_localhost:8000@9000__localhost:8001@9001
+
+
+
+
+
+
+
+
+
+
+#
