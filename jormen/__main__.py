@@ -12,9 +12,9 @@ DICT_DELIM = "*"
 
 
 class Jorm:
-    def __init__(self, leader, mygate, active, bucket, available):
+    def __init__(self, leader, mygate, active, bucket, available, target):
         self.jormpack = os.path.abspath(sys.argv[0])
-        self.target = 3
+        self.target = int(target)
         self.segment_sr = 0        # ratio | send/recv ratio between segment and leader
         self.active = active       # host-port -> wormUDP | wormgates with currently active worms
         self.bucket = bucket       # host-port -> wormUDP | wormgates with currently unresponsive worms
@@ -36,16 +36,20 @@ class Jorm:
         else:
             self.segment_flood()
 
-    def infodump(self):
+    def infodump(self, all=False):
         print("___________INFO___________")
-        print("target:%d (%d)" %(self.target, len(self.active)))
-        print("active", self.active)
-        print("bucket", self.bucket)
-        print("avail", self.available)
-        print("leader", self.leader)
-        print("self", self.mygate)
-        print("leader sr", self.leader_sr_map)
-        print("jormpack", self.jormpack)
+        if all:
+            print("target:%d (%d)" %(self.target, len(self.active)))
+            print("active", self.active)
+            print("bucket", self.bucket)
+            print("avail", self.available)
+            print("leader", self.leader)
+            print("self", self.mygate)
+            print("jormpack", self.jormpack)
+        if self.leader == self.mygate:
+            print("leader sr", self.leader_sr_map)
+        else:
+            print("segment sr", self.segment_sr)
         print("__________________________")
 
 
@@ -55,7 +59,7 @@ class Jorm:
         active = dict_to_string(self.active)
         bucket = dict_to_string(self.bucket)
         available = dict_to_string(self.available)
-        args = leader + ARG_DELIM + yourgate + ARG_DELIM + active + ARG_DELIM + bucket + ARG_DELIM + available
+        args = leader + ARG_DELIM + yourgate + ARG_DELIM + active + ARG_DELIM + bucket + ARG_DELIM + available + ARG_DELIM + str(self.target)
         cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @%s" %(target_wormgate, args, self.jormpack)
         print(cmd)
         os.system(cmd)
@@ -86,7 +90,6 @@ class Jorm:
         while True:
             if len(self.active) < self.target:
                 self.spawn_worm()
-            self.infodump()
             self.update_worms()
             #time.sleep(2)
             try:
@@ -96,6 +99,9 @@ class Jorm:
                 time.sleep(1)
                 continue
 
+            self.infodump()
+
+
     def segment_flood(self):
         """ Main loop for segments """
         while True:
@@ -103,9 +109,11 @@ class Jorm:
                 self.read_msg()
             except socket.timeout:
                 print("timed out(segment loop), retrying...")
-                continue
             time.sleep(2)
             self.inform_leader()
+
+            self.infodump()
+
 
     def election(self):
         """ Initiate election """
@@ -129,7 +137,6 @@ class Jorm:
             msg = str.encode(msg)
             sock.sendto(msg, (target_name, target_udp))
             self.leader_sr_map[target_key] += 1
-            print("Updated", target_key)
         return
 
 
@@ -145,14 +152,12 @@ class Jorm:
         sock.close()
         key = recv_msg.decode().split(",")[0]
         if self.leader == self.mygate:
-            print("key:",key)
             self.leader_sr_map[key] = 0
         elif key == list(self.leader.keys())[0]:
             self.segment_sr = 0
         else:
             # send hold on msg
             pass
-        print("got message:", recv_msg)
 
 
     def inform_leader(self):
@@ -172,12 +177,12 @@ class Jorm:
         msg = str.encode(msg)
         sock.sendto(msg, (leader_name, leader_udp))
         self.segment_sr += 1
-        print("Informed leader")
 
 
 def parse_args(str):
     """ Argument parser. Expects a string with arguments delimited by _ """
     args = str.split(ARG_DELIM)
+    target = args.pop()
     for i in range(len(args)):
         dict = {}
         if args[i] == "":
@@ -188,6 +193,7 @@ def parse_args(str):
                 key, val = p.split(KEYVAL_DELIM)
                 dict[key] = val
             args[i] = dict
+    args.append(target)
     return args
 
 
@@ -201,7 +207,7 @@ def dict_to_string(arg):
 
 if __name__ == "__main__":
     args = parse_args(sys.argv[1])
-    Jorm(args[0], args[1], args[2], args[3], args[4])
+    Jorm(args[0], args[1], args[2], args[3], args[4], args[5])
 
 
 
