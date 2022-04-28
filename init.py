@@ -11,64 +11,46 @@ KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
 
 def main(args):
-    os.system("shuf -i 49152-65535 -n 3 | sed 's/^/localhost:/' > host_list.txt")
+    # generate host port pairs
+    gen_cmd = "shuf -i 49152-65535 -n %d | sed 's/^/localhost:/' > host_list.txt" %(args.wormgates)
+    os.system(gen_cmd)
     hosts = []
+    host_udp = []
+
+    # append host port pairs to list
     with open("host_list.txt", mode="r") as f:
         for line in f:
             hosts.append(line.splitlines()[0])
-    entry_gate = hosts[0]
+
+    # generate udp port in ephemeral port range and append to host-port-udp list
     for i in range(len(hosts)):
         udp = random.randint(49152, 65535)
-        hosts[i] = hosts[i]+ "@%d" %(udp)
+        host_udp.append(hosts[i] + KEYVAL_DELIM + str(udp))
 
+    # generate wormgate input argument in this format:
     # localhost:8000@9000_localhost:8000@9000_localhost:8000@9000__localhost:8001@9001
-    arg = hosts[0] + ARG_DELIM + hosts[0] + ARG_DELIM + hosts[0] + ARG_DELIM + ARG_DELIM
-    for host in hosts:
-        if host == hosts[0]:
+    arg = host_udp[0] + ARG_DELIM + host_udp[0] + ARG_DELIM + host_udp[0] + ARG_DELIM + ARG_DELIM
+    for host in host_udp:
+        if host == host_udp[0]:
             continue
         else:
-            arg = arg + host + "*"
-    arg = arg[:-1]
+            arg = arg + host + DICT_DELIM
+    arg = arg[:-1] + ARG_DELIM + str(args.target)
     print(arg)
+    # make worm code executable
     os.system("./make_python_zip_executable.sh jormen")
-    subprocess.Popen("cat host_list.txt | ./wormgates_start.sh", shell=True)
-    cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @jormen.bin" %(entry_gate, arg)
-    print(cmd)
+
+    # start wormgates in new terminals
+    for host in hosts:
+        p = host.split(":")[1]
+        cmd = "gnome-terminal -e 'bash -c \"python3 wormgate.py -p %s\"'" %(p)
+        os.system(cmd)
+
     time.sleep(2)
+
+    # inject worm package
+    cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @jormen.bin" %(hosts[0], arg)
     os.system(cmd)
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
@@ -80,7 +62,10 @@ def parse_args():
         help ="Default: cluster | Specify environment. Valid inputs are: (cluster | local)")
 
     p.add_argument("-w", "--wormgates", required=False, type=int, default=8,
-        help ="Default: 8 | Number of wormgates to use")
+        help ="Default: 3 | Number of wormgates to use")
+
+    p.add_argument("-t", "--target", required=False, type=int, default=3,
+        help ="Default: 3 | Target worm  segment length")
 
     p.add_argument("-D", "--debug", required=False, type=int, default=0,
         help ="Default: 0 | if 1, print resultant terminal commands and exit")
