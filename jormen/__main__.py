@@ -27,14 +27,16 @@ class Jorm:
         # populate send/recv map with wormgate host-port of active worms
 
         self.infodump()
-        if self.mygate == self.leader:
-            for key in self.active:
-                if key in self.mygate:
-                    pass
-                self.leader_sr_map[key] = 0
-            self.leader_flood()
-        else:
-            self.segment_flood()
+        self.core()
+
+        #if self.mygate == self.leader:
+        #    for key in self.active:
+        #        if key in self.mygate:
+        #            pass
+        #        self.leader_sr_map[key] = 0
+        #    self.leader_flood()
+        #else:
+        #    self.segment_flood()
 
     def infodump(self, all=False):
         print("___________INFO___________")
@@ -51,7 +53,6 @@ class Jorm:
         else:
             print("segment sr", self.segment_sr)
         print("__________________________")
-
 
     def spawn_worm(self):
         yourgate, target_wormgate, target_wormUDP = self.pick_available_gate()
@@ -79,6 +80,10 @@ class Jorm:
         """ Core loop """
         while True:
             if self.leader == self.mygate:
+                for key in self.active:
+                    if key in self.mygate:
+                        pass
+                    self.leader_sr_map[key] = 0
                 self.leader_flood()
             else:
                 self.segment_flood()
@@ -87,32 +92,30 @@ class Jorm:
 
     def leader_flood(self):
         """ Main loop for the leader """
-        while True:
-            if len(self.active) < self.target:
-                self.spawn_worm()
-            self.update_worms()
-            #time.sleep(2)
-            try:
-                self.read_msg()
-            except socket.timeout:
-                print("timed out(leader loop), retrying...")
-                time.sleep(1)
-                continue
 
-            self.infodump()
+        while len(self.active) < self.target:
+            self.spawn_worm()
+        self.update_worms()
+        #time.sleep(2)
+        try:
+            self.read_msg()
+        except socket.timeout:
+            print("timed out(leader loop), retrying...")
+            time.sleep(1)
+            #continue
+        self.infodump()
 
 
     def segment_flood(self):
         """ Main loop for segments """
-        while True:
-            try:
-                self.read_msg()
-            except socket.timeout:
-                print("timed out(segment loop), retrying...")
-            time.sleep(2)
-            self.inform_leader()
 
-            self.infodump()
+        try:
+            self.read_msg()
+        except socket.timeout:
+            print("timed out(segment loop), retrying...")
+        time.sleep(2)
+        self.inform_leader()
+        self.infodump()
 
 
     def election(self):
