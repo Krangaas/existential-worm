@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+from platform import node
 import sys
 import random
 import socket
@@ -12,6 +13,7 @@ ARG_DELIM = "_"
 KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
 
+class NewLeader(Exception): pass
 
 class Jorm:
     def __init__(self, leader, mygate, active, bucket, available, target):
@@ -75,17 +77,23 @@ class Jorm:
 
     def core(self):
         """ Core loop """
-        while True:
-            if self.leader == self.mygate:
-                for key in self.active:
-                    if key in self.mygate:
-                        pass
-                    self.leader_sr_map[key] = 0
-                self.leader_flood()
-            else:
-                self.segment_flood()
+        try:
+            while True:
+                print("main loop, leader is ", self.leader, " type: ", type(self.leader), "gate: ", self.mygate, " type mygate:", type(self.mygate))
+                if self.leader == self.mygate:
+                    for key in self.active:
+                        if key in self.mygate:
+                            pass
+                        self.leader_sr_map[key] = 0
+                    print("HALLO DET E EN AKTIV LEADER SOM NAVE")
+                    self.leader_flood()
+                else:
+                    self.segment_flood()
+        except NewLeader:
+            time.sleep(1)
+            self.core()
 
-            self.election()
+            #self.election()
 
 
     def leader_flood(self):
@@ -110,7 +118,8 @@ class Jorm:
             try:
                 self.segment_read_msg()
             except socket.timeout:
-                print("timed out(segment loop), retrying...")
+                print("No response from leader, timeout. Selecting new leader...")
+                self.election()
             time.sleep(2)
             self.inform_leader()
             self.infodump()
@@ -118,6 +127,32 @@ class Jorm:
 
     def election(self):
         """ Initiate election """
+            #need a timeout since last msg received from leader,
+            #if unresponsive for S seconds, pick a new leader.
+            #easymode -> popitem(), make the last segment in the active list the new leader
+
+        del self.active[list(self.leader.keys())[0]]
+        get_next = next(iter(self.active.items()))
+        print("NEW LEADER: ", get_next, " type: ", type(get_next))
+        new_leader = ast.literal_eval(get_next)
+        self.leader = new_leader
+        time.sleep(1)
+        raise NewLeader
+
+        #print("######## LEADER ELECTION ########")
+        ##self.active.popitem() # remove current leader
+        #print("current leader: ", self.leader)
+        #print("active list", self.active)
+        #del self.active[list(self.leader.keys())]
+        #leader_name, leader_udp = self.active.popitem()
+        #print("active list after pop", self.active)
+        #dict_str = "{"+ "'" + leader_name + "'" + ":" + leader_udp + "}"
+        #new_leader = ast.literal_eval(dict_str)
+#
+        #print("new leader chosen: ", new_leader)
+        #self.leader = new_leader
+        #time.sleep(1)
+        #raise NewLeader
 
 
     def update_worms(self):
@@ -132,6 +167,8 @@ class Jorm:
             target_udp = int(target_udp)
 
             sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
             sock.bind((self_name, self_udp))
             sock.setblocking(False)
             #sock.settimeout(2)
@@ -148,7 +185,9 @@ class Jorm:
         self_name = self_name.split(":")[0]
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.settimeout(2)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
+        sock.settimeout(10)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
         sock.close()
@@ -175,6 +214,8 @@ class Jorm:
         self_name = self_name.split(":")[0]
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.settimeout(2)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
@@ -199,6 +240,8 @@ class Jorm:
         leader_name = leader_name.split(":")[0]
 
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.bind((self_name, self_udp))
         sock.setblocking(False)
         sock.settimeout(2)
