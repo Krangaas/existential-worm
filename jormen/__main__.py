@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+from hashlib import new
 import os
 from platform import node
 import sys
@@ -79,13 +80,11 @@ class Jorm:
         """ Core loop """
         try:
             while True:
-                print("main loop, leader is ", self.leader, " type: ", type(self.leader), "gate: ", self.mygate, " type mygate:", type(self.mygate))
                 if self.leader == self.mygate:
                     for key in self.active:
                         if key in self.mygate:
                             pass
                         self.leader_sr_map[key] = 0
-                    print("HALLO DET E EN AKTIV LEADER SOM NAVE")
                     self.leader_flood()
                 else:
                     self.segment_flood()
@@ -99,6 +98,7 @@ class Jorm:
     def leader_flood(self):
         """ Main loop for the leader """
         while True:
+            self.infodump(all=True)
             while len(self.active) < self.target:
                 self.spawn_worm()
             self.update_worms()
@@ -109,7 +109,6 @@ class Jorm:
                 print("timed out(leader loop), retrying...")
                 time.sleep(1)
                 #continue
-            self.infodump()
 
 
     def segment_flood(self):
@@ -121,38 +120,22 @@ class Jorm:
                 print("No response from leader, timeout. Selecting new leader...")
                 self.election()
             time.sleep(2)
+            self.update_available()
             self.inform_leader()
-            self.infodump()
+            self.infodump(all=True)
+
 
 
     def election(self):
         """ Initiate election """
-            #need a timeout since last msg received from leader,
-            #if unresponsive for S seconds, pick a new leader.
-            #easymode -> popitem(), make the last segment in the active list the new leader
 
         del self.active[list(self.leader.keys())[0]]
-        get_next = next(iter(self.active.items()))
-        print("NEW LEADER: ", get_next, " type: ", type(get_next))
-        new_leader = ast.literal_eval(get_next)
+        pop_segment = list(next(iter(self.active.items())))
+        format_segment = "{" + "'" + pop_segment[0] + "'" + ":" + "'" + pop_segment[1] + "'" + "}"
+        new_leader = ast.literal_eval(format_segment)
         self.leader = new_leader
         time.sleep(1)
         raise NewLeader
-
-        #print("######## LEADER ELECTION ########")
-        ##self.active.popitem() # remove current leader
-        #print("current leader: ", self.leader)
-        #print("active list", self.active)
-        #del self.active[list(self.leader.keys())]
-        #leader_name, leader_udp = self.active.popitem()
-        #print("active list after pop", self.active)
-        #dict_str = "{"+ "'" + leader_name + "'" + ":" + leader_udp + "}"
-        #new_leader = ast.literal_eval(dict_str)
-#
-        #print("new leader chosen: ", new_leader)
-        #self.leader = new_leader
-        #time.sleep(1)
-        #raise NewLeader
 
 
     def update_worms(self):
@@ -207,6 +190,17 @@ class Jorm:
             else:
                 # send hold on msg
                 pass
+
+    def update_available(self):
+        delete_list = []
+        for key in self.active:
+            if key in self.available:
+                delete_list.append(key)
+
+        for seg in delete_list:
+            del self.available[seg]
+
+
 
     def read_msg(self):
         self_name = list(self.mygate.keys())[0]
