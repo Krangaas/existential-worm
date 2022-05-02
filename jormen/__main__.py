@@ -5,6 +5,7 @@ from platform import node
 import sys
 import random
 import socket
+import threading
 import time
 import json
 import ast
@@ -38,6 +39,7 @@ class Jorm:
         self.leader = leader # bool | leader flag
         self.leader_sr_map = {}    # host-port -> ratio | send/recv ratio between leader and segments
         self.priority = {}
+        self.recent_election = False
 
         # populate send/recv map with wormgate host-port of active worms
 
@@ -65,10 +67,10 @@ class Jorm:
     def spawn_worm(self):
         yourgate, target_wormgate, target_wormUDP = self.pick_available_gate()
         # check if available, otherwise go to bucket. dummy func for testing
-        if yourgate or target_wormgate == None:
-            if self.bucket == None:
-                self.target = self.target - 1
-                return
+        #if yourgate or target_wormgate == None:
+        #    if self.bucket == None:
+        #        self.target = self.target - 1
+        #        return
         leader = dict_to_string(self.leader)
         active = dict_to_string(self.active)
         bucket = dict_to_string(self.bucket)
@@ -95,43 +97,47 @@ class Jorm:
 
     def core(self):
         """ Core loop """
-        for key in self.active:
-            if key in self.mygate:
-                pass
-            self.leader_sr_map[key] = 0
-
-        try:
-            while True:
+        # update leader SR map
+        if self.leader == self.mygate:
+            #self.leader_sr_map.clear()
+            for key in self.active:
+                if key in self.mygate:
+                    pass
+                self.leader_sr_map[key] = 0
+        while True:
+            try:
+                #while True:
                 if self.leader == self.mygate:
-                    #for key in self.active:
-                    #    if key in self.mygate:
-                    #        pass
-                    #    self.leader_sr_map[key] = 0
+                    for key in self.active:
+                        if key in self.mygate:
+                            pass
+                        self.leader_sr_map[key] = 0
                     self.leader_flood()
                 else:
-                    print("I'm a segment and I serve the leader...", self.leader)
                     self.segment_flood()
-        except NewLeader:
-            #time.sleep(1)
-            self.core()
-
-            #self.election()
+            except:
+                pass
 
 
     def leader_flood(self):
         """ Main loop for the leader """
-        #while True:
-        self.infodump(all=True)
-        while len(self.active) < self.target:
-            self.spawn_worm()
+
+        while True:
+            #if self.recent_election == True:
+            #    self.new_leader_elected()
+            #    self.recent_election = False
+
             time.sleep(0.1)
-        try:
+            self.infodump()
+            if len(self.active) < self.target:
+                self.spawn_worm()
+                time.sleep(0.1)
             self.update_worms()
-            self.read_msg()
-        except socket.timeout:
-            print("timed out(leader loop), retrying...")
-            #time.sleep(1)
-            #continue
+            try:
+                self.read_msg()
+            except socket.timeout:
+                continue
+
 
             #ToDo: if segment is unresponsive after time T or N connection attempts:
                 # conclude that segment is unresponsive/dead and spawn a new segment if we have available gates.
@@ -140,33 +146,39 @@ class Jorm:
     def segment_flood(self):
         """ Main loop for segments """
 
-        #while True:
-        self.infodump(all=True)
-        try:
-            self.segment_read_msg()
-            self.update_available()
-        except socket.timeout:
-            print("No response from leader, timeout. Selecting new leader...")
-            self.election()
-        #time.sleep(1)
-        self.inform_leader()
-        #self.infodump(all=True)
+        while True:
+            try:
+                self.segment_read_msg()
+                time.sleep(0.25)
+                self.update_available()
+            except socket.timeout:
+                print("No response from leader, timeout. Selecting new leader...")
+                self.election()
+
+            self.inform_leader()
+            self.infodump(all=True)
+
 
 
     def election(self):
         """ Initiate election """
 
-        del self.active[list(self.leader.keys())[0]]
-        del self.leader[list(self.leader.keys())[0]]
+        del self.active[list(self.leader.keys())[0]]    # current leader not responsive, delete from self.active
+        if self.leader == self.mygate:                  # purge SR map.
+            del self.leader_sr_map[list(self.leader.keys())[0]]
+        del self.leader[list(self.leader.keys())[0]]    # delete current leader from self.leader
+
 
         segment = list(self.active.keys())[0]   # pick first active segment
         seg_udp = self.active[segment]          # first active segment udp
         formatted_seg = "{" + "'" + segment + "'" + ":" + "'" + seg_udp + "'" + "}" # str formatting
         new_leader = ast.literal_eval(formatted_seg)                                # convert to dict
         self.leader = new_leader
-        if self.leader == self.mygate:
-            #time.sleep(random.random())
-            self.new_leader_elected()
+        self.recent_election = True
+        #if self.leader != self.mygate:
+        #    raise NewLeader
+        #if self.leader == self.mygate:
+        #    self.new_leader_elected()
         raise NewLeader
 
 
@@ -206,6 +218,7 @@ class Jorm:
         sock.setblocking(False)
         sock.bind((self_name, self_udp))
 
+        # Send update to all segments in self.active
         for target_key, target_udp in self.active.items():
             if target_key in self.mygate.keys():
                 continue
@@ -213,11 +226,10 @@ class Jorm:
             target_udp = int(target_udp)
 
 
-            msg = "update#%s" %(self.active)
+            msg = "update#%s#%s" %(self.active, self.available)
             msg = str.encode(msg)
             sock.sendto(msg, (target_name, target_udp))
             self.leader_sr_map[target_key] += 1
-
 
         sock.close()
 
@@ -232,20 +244,26 @@ class Jorm:
         sock.settimeout(15)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
-        #sock.close()
+        sock.close()
         key = recv_msg.decode().split("#")[0]
 
         if key == 'update':
-            update_str = recv_msg.decode().split("#")[1]
-            update_dict = ast.literal_eval(update_str)
-            if self.active != update_dict:
-                self.active = update_dict
+            # update self.active and self.available
+            active_dict = ast.literal_eval(recv_msg.decode().split("#")[1])
+            avail = ast.literal_eval(recv_msg.decode().split("#")[2])
+            if self.active != active_dict:
+                self.active = active_dict
+            if self.available != avail:
+                self.available = avail
             self.segment_sr = 0
         elif key == 'election':
-            print("received election msg from new leader...")
+            print(recv_msg)
+            # an election has occurred, update dictionaries.
             self.active = ast.literal_eval(recv_msg.decode().split("#")[1])
             self.leader = ast.literal_eval(recv_msg.decode().split("#")[2])
             self.available = ast.literal_eval(recv_msg.decode().split("#")[3])
+            self.recent_election = False
+            #raise NewLeader
         else:
             if self.leader == self.mygate:
                 self.leader_sr_map[key] = 0
@@ -254,7 +272,7 @@ class Jorm:
             else:
                 # send hold on msg
                 pass
-        # sleep for for a while (0.0 - 1.0) to give other segments a chance to talk to the leader.
+        # sleep for for a short while (0.0 - 1.0)s to give other segments a chance to talk to the leader.
         time.sleep(random.random())
 
 
@@ -266,17 +284,19 @@ class Jorm:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        sock.settimeout(2)
+        #sock.settimeout(2)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
-
-        #sock.close()
+        #print("address:", addr)
+        sock.close()
         key = recv_msg.decode().split(",")[0]
         if self.leader == self.mygate:
-            self.leader_sr_map[key] = 0
+            self.leader_sr_map[key] = 0     # update send/receive ratio map.
+
 
 
     def inform_leader(self):
+        """ Ping leader, informing that segment is active. """
         self_name = list(self.mygate.keys())[0]
         self_udp = int(self.mygate[self_name])
         self_name = self_name.split(":")[0]
@@ -290,11 +310,13 @@ class Jorm:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.setblocking(False)
         sock.bind((self_name, self_udp))
-        #sock.settimeout(2)
+        #sock.settimeout(10)
         msg = "%s, hello from segment" %(list(self.mygate.keys())[0])
         msg = str.encode(msg)
         sock.sendto(msg, (leader_name, leader_udp))
         self.segment_sr += 1
+        #time.sleep(random.random())
+        sock.close()
 
 
     def update_available(self):
