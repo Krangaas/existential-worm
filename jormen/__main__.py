@@ -66,7 +66,6 @@ class Jorm:
         args = leader + ARG_DELIM + yourgate + ARG_DELIM + active + ARG_DELIM + bucket + ARG_DELIM + available + ARG_DELIM + str(self.target)
         cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @%s" %(target_wormgate, args, self.jormpack)
         print(cmd)
-        #self.new_leader_flood()
         os.system(cmd)
 
 
@@ -108,6 +107,7 @@ class Jorm:
             self.infodump(all=True)
             while len(self.active) < self.target:
                 self.spawn_worm()
+                time.sleep(0.1)
             try:
                 self.update_worms()
                 self.read_msg()
@@ -139,37 +139,18 @@ class Jorm:
 
     def election(self):
         """ Initiate election """
-        print("#######################################")
-        print("leader", self.leader)
-        #if list(self.leader.keys())[0] in self.active:
+
         del self.active[list(self.leader.keys())[0]]
-        #pop_segment = list(next(iter(self.active.items())))
-        segment = list(self.active.keys())[0]
-        seg_udp = self.active[segment]
-        print("segment: ",segment)
-        print()
-        formatted_seg = "{" + "'" + segment + "'" + ":" + "'" + seg_udp + "'" + "}" #+ ":" + "'" + seg_udp + "'"
-        print(formatted_seg)
-        new_leader = ast.literal_eval(formatted_seg)
+
+        segment = list(self.active.keys())[0]   # pick first active segment
+        seg_udp = self.active[segment]          # first active segment udp
+        formatted_seg = "{" + "'" + segment + "'" + ":" + "'" + seg_udp + "'" + "}" # str formatting
+        new_leader = ast.literal_eval(formatted_seg)                                # convert to dict
         self.leader = new_leader
         if self.leader != self.mygate:
             time.sleep(random.random())
         raise NewLeader
 
-        {'localhost':'63371'}
-
-#leader {'localhost:57379': '53601'}
-#segment:  localhost:52593
-
-
-        #format_segment = "{" + "'" + pop_segment[0] + "'" + ":" + "'" + pop_segment[1] + "'" + "}"
-        #new_leader = ast.literal_eval(format_segment)
-        #self.leader = new_leader
-        #if self.leader == self.mygate:
-        #    pass
-        #elif self.leader != self.mygate:
-        #    time.sleep(2)
-        #raise NewLeader
 
     def new_leader_flood(self):
         self_name = list(self.leader.keys())[0]
