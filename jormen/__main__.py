@@ -95,13 +95,18 @@ class Jorm:
 
     def core(self):
         """ Core loop """
+        for key in self.active:
+            if key in self.mygate:
+                pass
+            self.leader_sr_map[key] = 0
+
         try:
             while True:
                 if self.leader == self.mygate:
-                    for key in self.active:
-                        if key in self.mygate:
-                            pass
-                        self.leader_sr_map[key] = 0
+                    #for key in self.active:
+                    #    if key in self.mygate:
+                    #        pass
+                    #    self.leader_sr_map[key] = 0
                     self.leader_flood()
                 else:
                     print("I'm a segment and I serve the leader...", self.leader)
