@@ -16,6 +16,15 @@ DICT_DELIM = "*"
 
 class NewLeader(Exception): pass
 
+
+# ToDo:
+# sjekke om et segment e ilive, otherwise spawn new segment
+# bruke bucket?
+# thread curl (SPEEDUP)
+
+# current: Election
+# all segments have chosen the same leader, but one of them never contacts the leader.
+
 class Jorm:
     def __init__(self, leader, mygate, active, bucket, available, target):
         self.jormpack = os.path.abspath(sys.argv[0])
@@ -56,14 +65,17 @@ class Jorm:
     def spawn_worm(self):
         yourgate, target_wormgate, target_wormUDP = self.pick_available_gate()
         # check if available, otherwise go to bucket. dummy func for testing
-        if yourgate == None:
-            self.target = self.target - 1
-            return
+        if yourgate or target_wormgate == None:
+            if self.bucket == None:
+                self.target = self.target - 1
+                return
         leader = dict_to_string(self.leader)
         active = dict_to_string(self.active)
         bucket = dict_to_string(self.bucket)
         available = dict_to_string(self.available)
         args = leader + ARG_DELIM + yourgate + ARG_DELIM + active + ARG_DELIM + bucket + ARG_DELIM + available + ARG_DELIM + str(self.target)
+
+        #THREAD THIS SHIT
         cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @%s" %(target_wormgate, args, self.jormpack)
         print(cmd)
         os.system(cmd)
@@ -103,18 +115,18 @@ class Jorm:
 
     def leader_flood(self):
         """ Main loop for the leader """
-        while True:
-            self.infodump(all=True)
-            while len(self.active) < self.target:
-                self.spawn_worm()
-                time.sleep(0.1)
-            try:
-                self.update_worms()
-                self.read_msg()
-            except socket.timeout:
-                print("timed out(leader loop), retrying...")
-                #time.sleep(1)
-                continue
+        #while True:
+        self.infodump(all=True)
+        while len(self.active) < self.target:
+            self.spawn_worm()
+            time.sleep(0.1)
+        try:
+            self.update_worms()
+            self.read_msg()
+        except socket.timeout:
+            print("timed out(leader loop), retrying...")
+            #time.sleep(1)
+            #continue
 
             #ToDo: if segment is unresponsive after time T or N connection attempts:
                 # conclude that segment is unresponsive/dead and spawn a new segment if we have available gates.
@@ -123,36 +135,37 @@ class Jorm:
     def segment_flood(self):
         """ Main loop for segments """
 
-        while True:
-            self.infodump(all=True)
-            try:
-                self.segment_read_msg()
-                self.update_available()
-            except socket.timeout:
-                print("No response from leader, timeout. Selecting new leader...")
-                self.election()
-
-            #time.sleep(1)
-            self.inform_leader()
-            #self.infodump(all=True)
+        #while True:
+        self.infodump(all=True)
+        try:
+            self.segment_read_msg()
+            self.update_available()
+        except socket.timeout:
+            print("No response from leader, timeout. Selecting new leader...")
+            self.election()
+        #time.sleep(1)
+        self.inform_leader()
+        #self.infodump(all=True)
 
 
     def election(self):
         """ Initiate election """
 
         del self.active[list(self.leader.keys())[0]]
+        del self.leader[list(self.leader.keys())[0]]
 
         segment = list(self.active.keys())[0]   # pick first active segment
         seg_udp = self.active[segment]          # first active segment udp
         formatted_seg = "{" + "'" + segment + "'" + ":" + "'" + seg_udp + "'" + "}" # str formatting
         new_leader = ast.literal_eval(formatted_seg)                                # convert to dict
         self.leader = new_leader
-        if self.leader != self.mygate:
-            time.sleep(random.random())
+        if self.leader == self.mygate:
+            #time.sleep(random.random())
+            self.new_leader_elected()
         raise NewLeader
 
 
-    def new_leader_flood(self):
+    def new_leader_elected(self):
         self_name = list(self.leader.keys())[0]
         self_udp = int(self.leader[self_name])
         self_name = self_name.split(":")[0]
