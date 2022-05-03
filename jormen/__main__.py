@@ -14,8 +14,8 @@ import ast
 ARG_DELIM = "_"
 KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
-LOWER_SR_TRESHOLD = 20
-UPPER_SR_TRESHOLD = 40
+LOWER_SR_TRESHOLD = 50
+UPPER_SR_TRESHOLD = 100
 LEADER_TIMEOUT = 10
 SEG_TIMEOUT = 5
 
@@ -29,6 +29,8 @@ class NewLeader(Exception): pass
 # thread curl (SPEEDUP)                                         # tricky
 # retry bucket                                                  # ez
 # update segments with bucket and targets                       # ez
+# generate host.sh
+
 
 class Jorm:
     def __init__(self, leader, mygate, active, bucket, available, target):
@@ -42,6 +44,7 @@ class Jorm:
         self.mygate = mygate
         self.leader = leader # bool | leader flag
         self.leader_sr_map = {}    # host-port -> ratio | send/recv ratio between leader and segments
+        self.time = True
 
         self.infodump()
         self.core()
@@ -115,11 +118,22 @@ class Jorm:
 
     def leader_flood(self):
         """ Main loop for the leader """
+        if self.time == True:
+            t1 = time.time()
         while True:
             self.infodump()
             if len(self.active) < self.target:
                 self.spawn_worm()
                 time.sleep(0.1)
+            if self.time == True:
+                if len(self.active) == self.target:
+                    t2 = time.time()
+                    t_tot = t2 - t1
+                    print("____________TIME____________")
+                    print("time taken to grow from 1 to ", self.target, " time: ", t_tot)
+                    print("____________________________")
+                    self.time = False
+
             self.update_worms()
             try:
                 self.read_msg()
@@ -127,7 +141,6 @@ class Jorm:
                 self.unresponsive_segment()
             else:
                 self.unresponsive_segment()
-
 
 
     def segment_flood(self):
@@ -148,9 +161,9 @@ class Jorm:
         # assumes that the highest value in the leader_sr_map points to the unresponsive segment.
         segment = max(self.leader_sr_map, key=self.leader_sr_map.get)
         SR_value = self.leader_sr_map[segment]
-        threshold = 20
+        threshold = LOWER_SR_TRESHOLD
         if self.target > 10:
-            threshold = 40
+            threshold = UPPER_SR_TRESHOLD
         # conclude that a segment is unresponsive if we haven't received a reply within T sends.
         if SR_value > threshold:
             #move to bucket
@@ -229,6 +242,7 @@ class Jorm:
 
         sock.close()
 
+
     def segment_read_msg(self):
         self_name = list(self.mygate.keys())[0]
         self_udp = int(self.mygate[self_name])
@@ -287,7 +301,6 @@ class Jorm:
         key = recv_msg.decode().split(",")[0]
         if self.leader == self.mygate:
             self.leader_sr_map[key] = 0     # update send/receive ratio map.
-
 
 
     def inform_leader(self):
