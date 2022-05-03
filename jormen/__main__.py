@@ -16,8 +16,7 @@ KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
 LOWER_SR_TRESHOLD = 50
 UPPER_SR_TRESHOLD = 100
-LEADER_TIMEOUT = 10
-SEG_TIMEOUT = 5
+TIMEOUT = 10
 
 class NewLeader(Exception): pass
 
@@ -68,20 +67,22 @@ class Jorm:
 
 
     def spawn_worm(self):
-        yourgate, target_wormgate, target_wormUDP = self.pick_available_gate()
-        if len(self.available) == 0:
+        if len(self.available) != 0:
+            yourgate, target_wormgate, target_wormUDP = self.pick_available_gate()
+        else:
             if len(self.bucket) == 0:
-                self.target = self.target - 1
-                # update segments of how many target's we want?
+                diff = self.target - len(self.active)
+                self.target = self.target - diff
+                return
             else:
-                # retry old segments
+                # BUCKET LOGIC
                 pass
+
         leader = dict_to_string(self.leader)
         active = dict_to_string(self.active)
         bucket = dict_to_string(self.bucket)
         available = dict_to_string(self.available)
         args = leader + ARG_DELIM + yourgate + ARG_DELIM + active + ARG_DELIM + bucket + ARG_DELIM + available + ARG_DELIM + str(self.target)
-
         #THREAD THIS SHIT
         cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @%s" %(target_wormgate, args, self.jormpack)
         print(cmd)
@@ -112,7 +113,7 @@ class Jorm:
                     self.leader_flood()
                 else:
                     self.segment_flood()
-            except:
+            except NewLeader:
                 pass
 
 
@@ -148,11 +149,10 @@ class Jorm:
         while True:
             try:
                 self.segment_read_msg()
-                time.sleep(0.25)
-                self.update_available()
             except socket.timeout:
                 print("No response from leader, timeout. Selecting new leader...")
                 self.election()
+            time.sleep(random.random())
             self.inform_leader()
             self.infodump(all=True)
 
@@ -211,7 +211,6 @@ class Jorm:
             msg = "election#%s#%s#%s" % (self.active, self.leader, self.available)
             msg = str.encode(msg)
             sock.sendto(msg, (target_name, target_udp))
-
         sock.close()
 
 
@@ -239,7 +238,6 @@ class Jorm:
             msg = str.encode(msg)
             sock.sendto(msg, (target_name, target_udp))
             self.leader_sr_map[target_key] += 1
-
         sock.close()
 
 
@@ -251,7 +249,7 @@ class Jorm:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        sock.settimeout(LEADER_TIMEOUT)
+        sock.settimeout(TIMEOUT)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
         sock.close()
@@ -266,13 +264,6 @@ class Jorm:
             if self.available != avail:
                 self.available = avail
             self.segment_sr = 0
-        elif key == 'election':
-            # this is not being used atm, redundant.
-            # an election has occurred, update dictionaries.
-            self.active = ast.literal_eval(recv_msg.decode().split("#")[1])
-            self.leader = ast.literal_eval(recv_msg.decode().split("#")[2])
-            self.available = ast.literal_eval(recv_msg.decode().split("#")[3])
-            self.recent_election = False
         else:
             if self.leader == self.mygate:
                 self.leader_sr_map[key] = 0
@@ -281,8 +272,6 @@ class Jorm:
             else:
                 # send hold on msg
                 pass
-        # sleep for for a short while (0.0 - 1.0)s to give other segments a chance to talk to the leader.
-        time.sleep(random.random())
 
 
     def read_msg(self):
@@ -293,14 +282,14 @@ class Jorm:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        sock.settimeout(SEG_TIMEOUT)
+        sock.settimeout(TIMEOUT)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
-        #print("address:", addr)
+
         sock.close()
         key = recv_msg.decode().split(",")[0]
         if self.leader == self.mygate:
-            self.leader_sr_map[key] = 0     # update send/receive ratio map.
+            self.leader_sr_map[key] = 0
 
 
     def inform_leader(self):
@@ -318,13 +307,12 @@ class Jorm:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.setblocking(False)
         sock.bind((self_name, self_udp))
-        #sock.settimeout(10)
+
         msg = "%s, hello from segment" %(list(self.mygate.keys())[0])
         msg = str.encode(msg)
         sock.sendto(msg, (leader_name, leader_udp))
-        self.segment_sr += 1
-        #time.sleep(random.random())
         sock.close()
+        self.segment_sr += 1
 
 
     def update_available(self):
