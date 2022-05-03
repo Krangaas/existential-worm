@@ -43,7 +43,11 @@ class Jorm:
         self.mygate = mygate
         self.leader = leader # bool | leader flag
         self.leader_sr_map = {}    # host-port -> ratio | send/recv ratio between leader and segments
-        self.time = True
+        self.liveness = {}
+
+        self.time_to_grow = True
+        self.recovery = False
+        self.timer_flag = False
 
         self.infodump()
         self.core()
@@ -78,10 +82,13 @@ class Jorm:
                 # BUCKET LOGIC
                 pass
 
+        self.liveness.update({target_wormgate:None})
+
         leader = dict_to_string(self.leader)
         active = dict_to_string(self.active)
         bucket = dict_to_string(self.bucket)
         available = dict_to_string(self.available)
+        self.update_worms()
         args = leader + ARG_DELIM + yourgate + ARG_DELIM + active + ARG_DELIM + bucket + ARG_DELIM + available + ARG_DELIM + str(self.target)
         #THREAD THIS SHIT
         cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @%s" %(target_wormgate, args, self.jormpack)
@@ -119,22 +126,24 @@ class Jorm:
 
     def leader_flood(self):
         """ Main loop for the leader """
-        if self.time == True:
-            t1 = time.time()
+
+        timer = []
         while True:
-            self.infodump()
+            #self.infodump()
             if len(self.active) < self.target:
+                timer.append(time.time())
+                self.time_to_grow = True
                 self.spawn_worm()
                 time.sleep(0.1)
-            if self.time == True:
-                if len(self.active) == self.target:
+            if self.time_to_grow == True:
+                if len(self.liveness) == 0:
                     t2 = time.time()
-                    t_tot = t2 - t1
+                    t_tot = t2 - timer[0]
                     print("____________TIME____________")
                     print("time taken to grow from 1 to ", self.target, " time: ", t_tot)
                     print("____________________________")
-                    self.time = False
-
+                    self.time_to_grow = False
+                    timer = []
             self.update_worms()
             try:
                 self.read_msg()
@@ -175,8 +184,6 @@ class Jorm:
             seg_udp = self.active[segment]
             #self.bucket[segment] = seg_udp
             del self.active[segment]        # delete unresponsive segment from self.active
-            # although, we might not need to delete or even use a bucket. Since we dont care if a msg is received,
-            # we can keep sending and listening to this segment in case it becomes responsive again.
             del self.leader_sr_map[segment]
 
 
@@ -269,7 +276,10 @@ class Jorm:
         key = recv_msg.decode().split(",")[0]
         if self.leader == self.mygate:
             self.leader_sr_map[key] = 0
-
+        if key in self.liveness:
+            # we have received a response, can delete it from the list
+            # because we're only using it to test for a response.
+            del self.liveness[key]
 
     def inform_leader(self):
         """ Ping leader, informing that segment is active. """
