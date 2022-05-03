@@ -14,17 +14,21 @@ import ast
 ARG_DELIM = "_"
 KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
+LOWER_SR_TRESHOLD = 20
+UPPER_SR_TRESHOLD = 40
+LEADER_TIMEOUT = 10
+SEG_TIMEOUT = 5
 
 class NewLeader(Exception): pass
 
 
 # ToDo:
-# sjekke om et segment e ilive, otherwise spawn new segment
-# bruke bucket?
-# thread curl (SPEEDUP)
-
-# current: Election
-# all segments have chosen the same leader, but one of them never contacts the leader.
+# Election                                                      # DONE
+# spawn new segment if we don't receive a reply                 # DONE
+# bruke bucket?                                                 # påbynt
+# thread curl (SPEEDUP)                                         # tricky
+# retry bucket                                                  # ez
+# update segments with bucket and targets                       # ez
 
 class Jorm:
     def __init__(self, leader, mygate, active, bucket, available, target):
@@ -38,10 +42,6 @@ class Jorm:
         self.mygate = mygate
         self.leader = leader # bool | leader flag
         self.leader_sr_map = {}    # host-port -> ratio | send/recv ratio between leader and segments
-        self.priority = {}
-        self.recent_election = False
-
-        # populate send/recv map with wormgate host-port of active worms
 
         self.infodump()
         self.core()
@@ -66,11 +66,13 @@ class Jorm:
 
     def spawn_worm(self):
         yourgate, target_wormgate, target_wormUDP = self.pick_available_gate()
-        # check if available, otherwise go to bucket. dummy func for testing
-        #if yourgate or target_wormgate == None:
-        #    if self.bucket == None:
-        #        self.target = self.target - 1
-        #        return
+        if len(self.available) == 0:
+            if len(self.bucket) == 0:
+                self.target = self.target - 1
+                # update segments of how many target's we want?
+            else:
+                # retry old segments
+                pass
         leader = dict_to_string(self.leader)
         active = dict_to_string(self.active)
         bucket = dict_to_string(self.bucket)
@@ -88,7 +90,7 @@ class Jorm:
             name, gate = self.available.popitem()
         except:
             print("go to bucket")
-            return
+            return -1
         ret = name + KEYVAL_DELIM + gate
         self.active[name] = gate
         self.leader_sr_map[name] = 0
@@ -97,16 +99,8 @@ class Jorm:
 
     def core(self):
         """ Core loop """
-        # update leader SR map
-        if self.leader == self.mygate:
-            #self.leader_sr_map.clear()
-            for key in self.active:
-                if key in self.mygate:
-                    pass
-                self.leader_sr_map[key] = 0
         while True:
             try:
-                #while True:
                 if self.leader == self.mygate:
                     for key in self.active:
                         if key in self.mygate:
@@ -121,13 +115,7 @@ class Jorm:
 
     def leader_flood(self):
         """ Main loop for the leader """
-
         while True:
-            #if self.recent_election == True:
-            #    self.new_leader_elected()
-            #    self.recent_election = False
-
-            time.sleep(0.1)
             self.infodump()
             if len(self.active) < self.target:
                 self.spawn_worm()
@@ -136,16 +124,14 @@ class Jorm:
             try:
                 self.read_msg()
             except socket.timeout:
-                continue
+                self.unresponsive_segment()
+            else:
+                self.unresponsive_segment()
 
-
-            #ToDo: if segment is unresponsive after time T or N connection attempts:
-                # conclude that segment is unresponsive/dead and spawn a new segment if we have available gates.
 
 
     def segment_flood(self):
         """ Main loop for segments """
-
         while True:
             try:
                 self.segment_read_msg()
@@ -154,35 +140,46 @@ class Jorm:
             except socket.timeout:
                 print("No response from leader, timeout. Selecting new leader...")
                 self.election()
-
             self.inform_leader()
             self.infodump(all=True)
 
+
+    def unresponsive_segment(self):
+        # assumes that the highest value in the leader_sr_map points to the unresponsive segment.
+        segment = max(self.leader_sr_map, key=self.leader_sr_map.get)
+        SR_value = self.leader_sr_map[segment]
+        threshold = 20
+        if self.target > 10:
+            threshold = 40
+        # conclude that a segment is unresponsive if we haven't received a reply within T sends.
+        if SR_value > threshold:
+            #move to bucket
+            seg_udp = self.active[segment]
+            #self.bucket[segment] = seg_udp
+            del self.active[segment]        # delete unresponsive segment from self.active
+            # although, we might not need to delete or even use a bucket. Since we dont care if a msg is received,
+            # we can keep sending and listening to this segment in case it becomes responsive again.
+            del self.leader_sr_map[segment]
 
 
     def election(self):
         """ Initiate election """
 
         del self.active[list(self.leader.keys())[0]]    # current leader not responsive, delete from self.active
-        if self.leader == self.mygate:                  # purge SR map.
-            del self.leader_sr_map[list(self.leader.keys())[0]]
         del self.leader[list(self.leader.keys())[0]]    # delete current leader from self.leader
-
 
         segment = list(self.active.keys())[0]   # pick first active segment
         seg_udp = self.active[segment]          # first active segment udp
         formatted_seg = "{" + "'" + segment + "'" + ":" + "'" + seg_udp + "'" + "}" # str formatting
         new_leader = ast.literal_eval(formatted_seg)                                # convert to dict
         self.leader = new_leader
-        self.recent_election = True
-        #if self.leader != self.mygate:
-        #    raise NewLeader
-        #if self.leader == self.mygate:
-        #    self.new_leader_elected()
+        #self.recent_election = True
+
         raise NewLeader
 
 
     def new_leader_elected(self):
+        # not in use
         self_name = list(self.leader.keys())[0]
         self_udp = int(self.leader[self_name])
         self_name = self_name.split(":")[0]
@@ -207,7 +204,6 @@ class Jorm:
 
     def update_worms(self):
         """ UDP update; Inform segments about other segments that are active. """
-
         self_name = list(self.leader.keys())[0]
         self_udp = int(self.leader[self_name])
         self_name = self_name.split(":")[0]
@@ -241,7 +237,7 @@ class Jorm:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        sock.settimeout(15)
+        sock.settimeout(LEADER_TIMEOUT)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
         sock.close()
@@ -257,13 +253,12 @@ class Jorm:
                 self.available = avail
             self.segment_sr = 0
         elif key == 'election':
-            print(recv_msg)
+            # this is not being used atm, redundant.
             # an election has occurred, update dictionaries.
             self.active = ast.literal_eval(recv_msg.decode().split("#")[1])
             self.leader = ast.literal_eval(recv_msg.decode().split("#")[2])
             self.available = ast.literal_eval(recv_msg.decode().split("#")[3])
             self.recent_election = False
-            #raise NewLeader
         else:
             if self.leader == self.mygate:
                 self.leader_sr_map[key] = 0
@@ -284,7 +279,7 @@ class Jorm:
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        #sock.settimeout(2)
+        sock.settimeout(SEG_TIMEOUT)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
         #print("address:", addr)
