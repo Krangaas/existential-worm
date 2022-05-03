@@ -139,7 +139,7 @@ class Jorm:
             try:
                 self.read_msg()
             except socket.timeout:
-                self.unresponsive_segment()
+                self.unresponsive_segment(timeout=True)
             else:
                 self.unresponsive_segment()
 
@@ -157,9 +157,14 @@ class Jorm:
             self.infodump(all=True)
 
 
-    def unresponsive_segment(self):
+    def unresponsive_segment(self, timeout=False):
         # assumes that the highest value in the leader_sr_map points to the unresponsive segment.
         segment = max(self.leader_sr_map, key=self.leader_sr_map.get)
+        if timeout == True:
+            del self.active[segment]
+            del self.leader_sr_map[segment]
+            return
+
         SR_value = self.leader_sr_map[segment]
         threshold = LOWER_SR_TRESHOLD
         if self.target > 10:
@@ -186,32 +191,7 @@ class Jorm:
         formatted_seg = "{" + "'" + segment + "'" + ":" + "'" + seg_udp + "'" + "}" # str formatting
         new_leader = ast.literal_eval(formatted_seg)                                # convert to dict
         self.leader = new_leader
-        #self.recent_election = True
-
         raise NewLeader
-
-
-    def new_leader_elected(self):
-        # not in use
-        self_name = list(self.leader.keys())[0]
-        self_udp = int(self.leader[self_name])
-        self_name = self_name.split(":")[0]
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        sock.setblocking(False)
-        sock.bind((self_name, self_udp))
-
-        for target_key, target_udp in self.active.items():
-            if target_key in self.mygate.keys():
-                continue
-            target_name = target_key.split(":")[0]
-            target_udp = int(target_udp)
-            msg = "election#%s#%s#%s" % (self.active, self.leader, self.available)
-            msg = str.encode(msg)
-            sock.sendto(msg, (target_name, target_udp))
-        sock.close()
 
 
     def update_worms(self):
@@ -232,7 +212,6 @@ class Jorm:
                 continue
             target_name = target_key.split(":")[0]
             target_udp = int(target_udp)
-
 
             msg = "update#%s#%s" %(self.active, self.available)
             msg = str.encode(msg)
@@ -313,16 +292,6 @@ class Jorm:
         sock.sendto(msg, (leader_name, leader_udp))
         sock.close()
         self.segment_sr += 1
-
-
-    def update_available(self):
-        delete_list = []
-        for key in self.active:
-            if key in self.available:
-                delete_list.append(key)
-
-        for seg in delete_list:
-            del self.available[seg]
 
 
 def parse_args(str):
