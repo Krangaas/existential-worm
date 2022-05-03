@@ -4,6 +4,9 @@ import os
 import argparse
 import random
 import time
+import json
+from urllib.request import urlopen
+
 
 def main(args):
     kills = 0
@@ -15,26 +18,34 @@ def main(args):
     print(host_list)
     random.shuffle(host_list)
 
+    seg = "numsegments"
     for host in host_list:
         if args.clinical == "false":
-            cmd = "curl -X POST 'http://%s/kill_worms'" %(host)
-            print(cmd)
-            os.system(cmd)
-            kills += 1
-            if kills == args.target:
-                break
-            time.sleep(args.sleep)
+            with urlopen("http://%s/info" %(host)) as response:
+                info = response.read()
+                json_info = json.loads(info)
+                if json_info[seg] != 0:
+                    cmd = "curl -X POST 'http://%s/kill_worms'" %(host)
+                    print(cmd)
+                    os.system(cmd)
+                    kills += 1
+                    if kills == args.target:
+                        break
+                    time.sleep(args.sleep)
         else:
             if host == leader:
                 continue
-            cmd = "curl -X POST 'http://%s/kill_worms'" %(host)
-            print(cmd)
-            os.system(cmd)
-            kills += 1
-            if kills == args.target:
-                break
-            time.sleep(args.sleep)
-
+            with urlopen("http://%s/info" %(host)) as response:
+                info = response.read()
+                json_info = json.loads(info)
+                if json_info[seg] != 0:
+                    cmd = "curl -X POST 'http://%s/kill_worms'" %(host)
+                    print(cmd)
+                    os.system(cmd)
+                    kills += 1
+                    if kills == args.target:
+                        break
+                    time.sleep(args.sleep)
 
 
 def parse_args():
