@@ -12,8 +12,23 @@ DICT_DELIM = "*"
 
 def main(args):
     # generate host port pairs
-    gen_cmd = "shuf -i 49152-65535 -n %d | sed 's/^/localhost:/' > host_list.txt" %(args.wormgates)
-    os.system(gen_cmd)
+    if args.env == "local":
+        gen_cmd = "shuf -i 49152-65535 -n %d | sed 's/^/localhost:/' > host_list.txt" %(args.wormgates)
+        os.system(gen_cmd)
+    elif args.env == "cluster":
+        gen_cmd = "./generate_hosts.sh %d" %(args.wormgates)
+        os.system(gen_cmd)
+        host_list = []
+        with open('host_list.txt', mode='r') as f:
+            for line in f:
+                port = random.randint(49152, 65535)
+                host = line.splitlines()[0]
+                # add port number to addresses
+                host_list.append(host + ":" + str(port)+ "\n")
+        with open('host_list.txt', mode="w") as f:
+            f.writelines(host_list)
+
+
     hosts = []
     host_udp = []
 
@@ -41,9 +56,13 @@ def main(args):
     os.system("./make_python_zip_executable.sh jormen")
 
     # start wormgates in new terminals
-    for host in hosts:
-        p = host.split(":")[1]
-        cmd = "gnome-terminal -e 'bash -c \"python3 wormgate.py -p %s\"'" %(p)
+    if args.env == "local":
+        for host in hosts:
+            p = host.split(":")[1]
+            cmd = "gnome-terminal -e 'bash -c \"python3 wormgate.py -p %s\"'" %(p)
+            os.system(cmd)
+    elif args.env == "cluster":
+        cmd = "cat host_list.txt | ./wormgates_start.sh"
         os.system(cmd)
 
     time.sleep(2)
@@ -66,9 +85,6 @@ def parse_args():
 
     p.add_argument("-t", "--target", required=False, type=int, default=3,
         help ="Default: 3 | Target worm  segment length")
-
-    p.add_argument("-D", "--debug", required=False, type=int, default=0,
-        help ="Default: 0 | if 1, print resultant terminal commands and exit")
 
     args = p.parse_args()
     return args
