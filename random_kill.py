@@ -11,17 +11,29 @@ def main(args):
     with open("host_list.txt", mode="r") as f:
         for line in f:
             host_list.append(line.splitlines()[0])
+    leader = host_list[0]
     print(host_list)
     random.shuffle(host_list)
 
     for host in host_list:
-        cmd = "curl -X POST 'http://%s/kill_worms'" %(host)
-        print(cmd)
-        #os.system(cmd)
-        kills += 1
-        if kills == args.target:
-            break
-        time.sleep(args.sleep)
+        if args.clinical == "false":
+            cmd = "curl -X POST 'http://%s/kill_worms'" %(host)
+            print(cmd)
+            os.system(cmd)
+            kills += 1
+            if kills == args.target:
+                break
+            time.sleep(args.sleep)
+        else:
+            if host == leader:
+                continue
+            cmd = "curl -X POST 'http://%s/kill_worms'" %(host)
+            print(cmd)
+            os.system(cmd)
+            kills += 1
+            if kills == args.target:
+                break
+            time.sleep(args.sleep)
 
 
 
@@ -32,6 +44,9 @@ def parse_args():
         help ="Default: 1 | Number of segments to kill")
     p.add_argument("-s", "--sleep", required=False, type=int, default=0,
         help ="Default: 10 | Time between each kill")
+    p.add_argument("-c", "--clinical", required=False, type=str, default="false",
+        help = "Default: false | Clinical environment, if true, leader wont be killed")
+
 
     args = p.parse_args()
     return args
