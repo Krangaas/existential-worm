@@ -10,7 +10,7 @@ import time
 import json
 import ast
 
-# localhost:8000@9000_localhost:8000@9000_localhost:8000@9000__localhost:8001@9001
+
 ARG_DELIM = "_"
 KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
@@ -19,16 +19,6 @@ UPPER_SR_TRESHOLD = 100
 TIMEOUT = 10
 
 class NewLeader(Exception): pass
-
-
-# ToDo:
-# Election                                                      # DONE
-# spawn new segment if we don't receive a reply                 # DONE
-# bruke bucket?                                                 # påbynt
-# thread curl (SPEEDUP)                                         # tricky
-# retry bucket                                                  # ez
-# update segments with bucket and targets                       # ez
-# generate host.sh
 
 
 class Jorm:
@@ -41,13 +31,11 @@ class Jorm:
         self.available = available # host-port -> wormUDP | wormgates that are currently unused
 
         self.mygate = mygate
-        self.leader = leader # bool | leader flag
+        self.leader = leader       # bool | leader flag
         self.leader_sr_map = {}    # host-port -> ratio | send/recv ratio between leader and segments
         self.liveness = {}
 
         self.time_to_grow = True
-        self.recovery = False
-        self.timer_flag = False
 
         self.infodump()
         self.core()
@@ -90,13 +78,14 @@ class Jorm:
         available = dict_to_string(self.available)
         self.update_worms()
         args = leader + ARG_DELIM + yourgate + ARG_DELIM + active + ARG_DELIM + bucket + ARG_DELIM + available + ARG_DELIM + str(self.target)
-        #THREAD THIS SHIT
+        #THREAD THIS and use urllib.request
         cmd = "curl -X POST 'http://%s/worm_entrance?args='%s'' --data-binary @%s" %(target_wormgate, args, self.jormpack)
-        print(cmd)
+        #print(cmd)
         os.system(cmd)
 
 
     def pick_available_gate(self):
+        """ Pops a wormgate from self.available, returns -1 if empty. """
         try:
             name, gate = self.available.popitem()
         except:
@@ -167,6 +156,7 @@ class Jorm:
 
 
     def unresponsive_segment(self, timeout=False):
+
         # assumes that the highest value in the leader_sr_map points to the unresponsive segment.
         segment = max(self.leader_sr_map, key=self.leader_sr_map.get)
         if timeout == True:
@@ -178,23 +168,22 @@ class Jorm:
         threshold = LOWER_SR_TRESHOLD
         if self.target > 10:
             threshold = UPPER_SR_TRESHOLD
-        # conclude that a segment is unresponsive if we haven't received a reply within T sends.
+        # conclude that a segment is unresponsive if we haven't received a reply within the threshold window.
         if SR_value > threshold:
-            #move to bucket
             seg_udp = self.active[segment]
-            #self.bucket[segment] = seg_udp
-            del self.active[segment]        # delete unresponsive segment from self.active
+            #self.bucket[segment] = seg_udp     # move to bucket once logic is implemented
+            del self.active[segment]            # delete unresponsive segment from self.active
             del self.leader_sr_map[segment]
 
 
     def election(self):
-        """ Initiate election """
+        """ Initiate election, pick first segment:port in self.available """
 
         del self.active[list(self.leader.keys())[0]]    # current leader not responsive, delete from self.active
         del self.leader[list(self.leader.keys())[0]]    # delete current leader from self.leader
 
-        segment = list(self.active.keys())[0]   # pick first active segment
-        seg_udp = self.active[segment]          # first active segment udp
+        segment = list(self.active.keys())[0]           # pick first active segment
+        seg_udp = self.active[segment]                  # first active segment udp
         formatted_seg = "{" + "'" + segment + "'" + ":" + "'" + seg_udp + "'" + "}" # str formatting
         new_leader = ast.literal_eval(formatted_seg)                                # convert to dict
         self.leader = new_leader
@@ -202,7 +191,7 @@ class Jorm:
 
 
     def update_worms(self):
-        """ UDP update; Inform segments about other segments that are active. """
+        """ UDP update; Inform segments about other segments that are active and which gates are available """
         self_name = list(self.leader.keys())[0]
         self_udp = int(self.leader[self_name])
         self_name = self_name.split(":")[0]
@@ -228,6 +217,7 @@ class Jorm:
 
 
     def segment_read_msg(self):
+        """ Segment reads messages from leader. Updates self.active and self.available """
         self_name = list(self.mygate.keys())[0]
         self_udp = int(self.mygate[self_name])
         self_name = self_name.split(":")[0]
@@ -261,6 +251,8 @@ class Jorm:
 
 
     def read_msg(self):
+        """ Leader listens for incomming messages from segment. Updates send/receive counter """
+
         self_name = list(self.mygate.keys())[0]
         self_udp = int(self.mygate[self_name])
         self_name = self_name.split(":")[0]
@@ -271,15 +263,15 @@ class Jorm:
         sock.settimeout(TIMEOUT)
         sock.bind((self_name, self_udp))
         recv_msg = sock.recv(1024)
-
         sock.close()
+
         key = recv_msg.decode().split(",")[0]
-        if self.leader == self.mygate:
-            self.leader_sr_map[key] = 0
+        self.leader_sr_map[key] = 0
         if key in self.liveness:
-            # we have received a response, can delete it from the list
+            # we have received a response, and can delete it from the list
             # because we're only using it to test for a response.
             del self.liveness[key]
+
 
     def inform_leader(self):
         """ Ping leader, informing that segment is active. """
@@ -333,18 +325,3 @@ def dict_to_string(arg):
 if __name__ == "__main__":
     args = parse_args(sys.argv[1])
     Jorm(args[0], args[1], args[2], args[3], args[4], args[5])
-
-
-
-    # localhost:8000@9000_localhost:8000@9000_localhost:8000@9000__localhost:8001@9001
-
-
-
-
-
-
-
-
-
-
-#
