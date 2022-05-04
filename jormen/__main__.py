@@ -17,6 +17,7 @@ DICT_DELIM = "*"
 LOWER_SR_TRESHOLD = 50
 UPPER_SR_TRESHOLD = 100
 TIMEOUT = 10
+RECV_BUFFER = 2048
 
 class NewLeader(Exception): pass
 
@@ -227,7 +228,7 @@ class Jorm:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.settimeout(TIMEOUT)
         sock.bind((self_name, self_udp))
-        recv_msg = sock.recv(1024)
+        recv_msg = sock.recv(RECV_BUFFER)
         sock.close()
         key = recv_msg.decode().split("#")[0]
 
@@ -262,7 +263,7 @@ class Jorm:
         sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
         sock.settimeout(TIMEOUT)
         sock.bind((self_name, self_udp))
-        recv_msg = sock.recv(1024)
+        recv_msg = sock.recv(RECV_BUFFER)
         sock.close()
 
         key = recv_msg.decode().split(",")[0]
