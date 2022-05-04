@@ -45,9 +45,7 @@ def main(args):
     # This file is strictly used for demo purposes
     with open("host_udp.txt", mode="w") as f:
         for entry in host_udp:
-            host, udp = entry.split("@")
-            name  = host.split(":")[0]
-            f.write(name + ":" + udp + "\n")
+            f.write(entry + "\n")
 
     # generate wormgate input argument in this format:
     # localhost:8000@9000_localhost:8000@9000_localhost:8000@9000__localhost:8001@9001

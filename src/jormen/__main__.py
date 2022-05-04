@@ -35,7 +35,6 @@ class Jorm:
         self.leader = leader       # bool | leader flag
         self.leader_sr_map = {}    # host-port -> ratio | send/recv ratio between leader and segments
         self.liveness = {}
-        self.segment_udp = {}
 
         self.time_to_grow = True
 
@@ -121,14 +120,12 @@ class Jorm:
 
         timer = []
         while True:
-            self.infodump(all=True)
+            self.infodump()
             if len(self.active) < self.target:
                 timer.append(time.time())
                 self.time_to_grow = True
                 self.spawn_worm()
                 time.sleep(0.1)
-            elif len(self.active) > self.target:
-                self.kill()
             if self.time_to_grow == True:
                 if len(self.liveness) == 0:
                     t2 = time.time()
@@ -146,31 +143,6 @@ class Jorm:
             else:
                 self.unresponsive_segment()
 
-    def kill(self):
-        self_name = list(self.leader.keys())[0]
-        self_udp = int(self.leader[self_name])
-        self_name = self_name.split(":")[0]
-
-        sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEPORT, 1)
-        sock.setblocking(False)
-        sock.bind((self_name, self_udp))
-
-        name = list(self.active)[-1]
-        udp = self.active[name]
-
-        del self.active[name]
-        del self.leader_sr_map[name]
-
-        self.available.update({name:udp})
-        name = name.split(":")[0]
-        msg = "kill"
-        msg = str.encode(msg)
-        sock.sendto(msg, (name, int(udp)))
-        sock.close()
-
-
 
     def segment_flood(self):
         """ Main loop for segments """
@@ -182,7 +154,7 @@ class Jorm:
                 self.election()
             time.sleep(random.random())
             self.inform_leader()
-            self.infodump(all=True)
+            #self.infodump(all=True)
 
 
     def unresponsive_segment(self, timeout=False):
@@ -271,8 +243,6 @@ class Jorm:
             if self.available != avail:
                 self.available = avail
             self.segment_sr = 0
-        elif key == 'kill':
-            sys.exit("Got kill command from leader")
         else:
             if self.leader == self.mygate:
                 self.leader_sr_map[key] = 0
@@ -299,17 +269,11 @@ class Jorm:
         sock.close()
 
         key = recv_msg.decode().split(",")[0]
-
-        if key == "target":
-            self.target = int(recv_msg.decode().split(",")[1])
-            if self.target == 0:
-                self.target = 1
-        else:
-            self.leader_sr_map[key] = 0
-            if key in self.liveness:
-                # we have received a response, and can delete it from the list
-                # because we're only using it to test for a response.
-                del self.liveness[key]
+        self.leader_sr_map[key] = 0
+        if key in self.liveness:
+            # we have received a response, and can delete it from the list
+            # because we're only using it to test for a response.
+            del self.liveness[key]
 
 
     def inform_leader(self):
