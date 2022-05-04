@@ -53,6 +53,7 @@ class Jorm:
             print("self", self.mygate)
             print("jormpack", self.jormpack)
         if self.leader == self.mygate:
+            print("target:%d (%d)" %(self.target, len(self.active)))
             print("leader sr", self.leader_sr_map)
         else:
             print("segment sr", self.segment_sr)
@@ -181,7 +182,8 @@ class Jorm:
         """ Initiate election, pick first segment:port in self.available """
 
         del self.active[list(self.leader.keys())[0]]    # current leader not responsive, delete from self.active
-        del self.leader[list(self.leader.keys())[0]]    # delete current leader from self.leader
+        #del self.leader[list(self.leader.keys())[0]]    # delete current leader from self.leader
+        self.leader = {}
 
         segment = list(self.active.keys())[0]           # pick first active segment
         seg_udp = self.active[segment]                  # first active segment udp
