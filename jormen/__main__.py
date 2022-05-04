@@ -118,7 +118,7 @@ class Jorm:
 
         timer = []
         while True:
-            #self.infodump()
+            self.infodump()
             if len(self.active) < self.target:
                 timer.append(time.time())
                 self.time_to_grow = True
@@ -152,7 +152,7 @@ class Jorm:
                 self.election()
             time.sleep(random.random())
             self.inform_leader()
-            self.infodump(all=True)
+            #self.infodump(all=True)
 
 
     def unresponsive_segment(self, timeout=False):
