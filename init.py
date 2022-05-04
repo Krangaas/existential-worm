@@ -11,6 +11,7 @@ KEYVAL_DELIM = "@"
 DICT_DELIM = "*"
 
 def main(args):
+    """  """
     # generate host port pairs
     if args.env == "local":
         gen_cmd = "shuf -i 49152-65535 -n %d | sed 's/^/localhost:/' > host_list.txt" %(args.wormgates)
@@ -28,7 +29,6 @@ def main(args):
         with open('host_list.txt', mode="w") as f:
             f.writelines(host_list)
 
-
     hosts = []
     host_udp = []
 
@@ -41,6 +41,11 @@ def main(args):
     for i in range(len(hosts)):
         udp = random.randint(49152, 65535)
         host_udp.append(hosts[i] + KEYVAL_DELIM + str(udp))
+
+    # This file is strictly used for demo purposes
+    with open("host_udp.txt", mode="w") as f:
+        for entry in host_udp:
+            f.write(entry + "\n")
 
     # generate wormgate input argument in this format:
     # localhost:8000@9000_localhost:8000@9000_localhost:8000@9000__localhost:8001@9001
